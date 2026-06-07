@@ -41,6 +41,8 @@ class GameState(BaseModel):
     trick_history: List[Trick]=[]; round_number: int=1
     total_rounds: int=5; deck: List[Card]=[]
     _bid_turns: int=0  # internal counter
+    bidding_started_player_idx: int=0  # who starts bidding each round
+    is_sarkari_trump: bool=False  # true if all players skipped initial bid phase
 
     class Config: use_enum_values=True
 

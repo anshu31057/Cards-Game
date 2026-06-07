@@ -130,8 +130,10 @@ class RoomManager:
                 "lead_suit": s.current_trick.lead_suit,
             },
             "trick_history_count": len(s.trick_history),
-            "original_bidder_id": getattr(s, "_original_bidder_id", None),
+            "original_bidder_id": getattr(s, "_bid_by_player_in_first_phase", None),
             "round_number": s.round_number, "total_rounds": s.total_rounds,
+            "is_sarkari_trump": s.is_sarkari_trump,
+            "bidding_started_player_idx": s.bidding_started_player_idx,
         }
 
     async def _broadcast_state(self, pin: str):

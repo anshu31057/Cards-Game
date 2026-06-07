@@ -70,39 +70,53 @@ def validate_play(card: Card, hand: List[Card], lead_suit: Optional[str],
 
 def validate_bid(tricks: int, suit: str, phase: str,
                  current_bid: Optional[Bid], player_id: str,
-                 original_bidder_id: Optional[str]) -> Tuple[bool, str]:
+                 original_bidder_id: Optional[str], 
+                 bid_by_player_in_first_phase: Optional[str] = None) -> Tuple[bool, str]:
     """
     FINAL RULES:
-    first_bid:  min=5 if no current bid, else current+1 (strictly higher)
-    final_bid:
-      - Original bidder: may increase their own bid by any amount
-      - Other players: must bid ≥10 to override trump
-      - Everyone can skip (tricks=0)
+    
+    first_bid (5-card phase):
+      - Skip (0) always allowed
+      - If no bid yet: minimum must be exactly 5 (not less, not more initially)
+      - If bid exists: must be > current bid
+      - Only one player can actually bid in first_bid (becomes trump owner)
+    
+    final_bid (13-card phase):
+      - Skip (0) always allowed
+      - If player bid in first_bid: can bid >= their first bid, no minimum
+      - If player skipped first_bid: can bid 1-13, but to override trump must bid >= 10
+      - To override existing trump: must bid > current bid AND >= 10
+      - Original bidder: can increase their bid
     """
     if tricks == 0: return True, ""   # skip always allowed
     if tricks > 13: return False, "Max 13"
+    if tricks < 0: return False, "Invalid bid"
+
+    try: Suit(suit)
+    except ValueError: return False, "Bad suit"
 
     if phase == "first_bid":
+        # In first bid, minimum is 5
         min_t = (current_bid.tricks + 1) if current_bid else 5
         if tricks < min_t:
             return False, f"Need ≥{min_t}"
 
     elif phase == "final_bid":
-        is_orig = (player_id == original_bidder_id)
-        if is_orig:
-            # Original bidder: can increase above their own bid
-            own_bid = current_bid.tricks if (current_bid and current_bid.player_id==player_id) else 0
+        bid_in_first = (bid_by_player_in_first_phase == player_id)
+        
+        if bid_in_first:
+            # Bid in first phase: can increase their bid
+            own_bid = current_bid.tricks if (current_bid and current_bid.player_id==player_id) else 5
             if tricks <= own_bid:
-                return False, f"Must bid higher than your current {own_bid}"
+                return False, f"Must bid higher than {own_bid}"
         else:
-            # Other players: need ≥10 to take over trump
-            if tricks < 10:
-                return False, "Need ≥10 to override trump"
-            if current_bid and tricks <= current_bid.tricks:
-                return False, f"Need >{current_bid.tricks} to override"
+            # Skipped in first phase: can bid any 1-13, but >= 10 required to override trump
+            if current_bid and tricks > current_bid.tricks:
+                # Trying to override existing trump owner - need >= 10
+                if tricks < 10:
+                    return False, f"Need ≥10 to override trump. Bid ≥10 to take over."
+            # else: bidding lower than current (won't override) - allowed
 
-    try: Suit(suit)
-    except ValueError: return False, "Bad suit"
     return True, ""
 
 
@@ -120,50 +134,105 @@ class GameEngine:
     def __init__(self, state: GameState): self.state = state
 
     def start_game(self):
+        """Start a new round with proper dealer rotation."""
         s = self.state
+        
+        # Rotate bidding starter (dealer) each round
+        if s.round_number == 1:
+            s.bidding_started_player_idx = 0
+        else:
+            s.bidding_started_player_idx = (s.bidding_started_player_idx + 1) % len(s.player_order)
+        
+        # Build and deal deck
         s.deck = build_deck()
         hands, rem = deal_cards(s.deck, 5, len(s.players))
         s.deck = rem
+        
+        # Distribute initial 5 cards and reset player state
         for i, pid in enumerate(s.player_order):
             p = s.players[pid]
             p.hand = sorted(hands[i], key=lambda c: (SUIT_SORT.get(c.suit,4), -c.rank_value))
-            p.tricks_won = 0; p.bid = None
-        s.phase = GamePhase.FIRST_BID; s.current_player_idx = 0; s._bid_turns = 0
-        s.trump_suit = None; s.final_bidder_id = None; s.final_bid = None
-        s.current_trick = Trick(); s.trick_history = []
-        # Track who placed the first/original bid
-        s._original_bidder_id = None
+            p.tricks_won = 0
+            p.bid = None
+        
+        # Reset bid-related state
+        s.phase = GamePhase.FIRST_BID
+        s.current_player_idx = s.bidding_started_player_idx
+        s._bid_turns = 0
+        s.trump_suit = None
+        s.final_bidder_id = None
+        s.final_bid = None
+        s.is_sarkari_trump = False
+        s.current_trick = Trick()
+        s.trick_history = []
+        
+        # Track who actually bid in first phase (for final phase rules)
+        s._bid_by_player_in_first_phase = None
 
     def place_bid(self, player_id: str, tricks: int, suit: str) -> Tuple[bool, str]:
         s = self.state
-        if s.phase not in (GamePhase.FIRST_BID, GamePhase.FINAL_BID): return False, "Not bidding"
-        if s.current_player_id != player_id: return False, "Not your turn"
+        if s.phase not in (GamePhase.FIRST_BID, GamePhase.FINAL_BID): 
+            return False, "Not bidding"
+        if s.current_player_id != player_id: 
+            return False, "Not your turn"
 
-        orig = getattr(s, '_original_bidder_id', None)
-        ok, err = validate_bid(tricks, suit, s.phase.value, s.final_bid, player_id, orig)
-        if not ok: return False, err
+        # Validate bid based on phase
+        bid_by_player = getattr(s, '_bid_by_player_in_first_phase', None)
+        is_sarkari = getattr(s, 'is_sarkari_trump', False)
+        ok, err = validate_bid(tricks, suit, s.phase.value, s.final_bid, player_id, 
+                               getattr(s, '_original_bidder_id', None), bid_by_player, is_sarkari)
+        if not ok: 
+            return False, err
 
+        # Place bid if not skipping
         if tricks > 0:
             bid = Bid(player_id=player_id, tricks=tricks, suit=suit)
             s.players[player_id].bid = bid
-            if s.final_bid is None or tricks > s.final_bid.tricks:
-                s.final_bid = bid; s.final_bidder_id = player_id; s.trump_suit = suit
-            # Track original bidder (first person to bid in first_bid phase)
-            if s.phase == GamePhase.FIRST_BID and orig is None:
-                s._original_bidder_id = player_id
-
+            
+            # In FINAL_BID phase, only update final_bid if this bid overrides (>= 10 or trump owner increasing)
+            # In FIRST_BID phase, always update final_bid
+            if s.phase == GamePhase.FIRST_BID:
+                s.final_bid = bid
+                s.final_bidder_id = player_id
+                s.trump_suit = suit
+                # Track first bidder in first phase
+                if s._bid_by_player_in_first_phase is None:
+                    s._bid_by_player_in_first_phase = player_id
+            elif s.phase == GamePhase.FINAL_BID:
+                # In final phase, update trump owner if this bid >= 10 or if player bid in first
+                bid_in_first = (s._bid_by_player_in_first_phase == player_id)
+                if bid_in_first or tricks >= 10:
+                    # This bid can override trump or increase bid from first phase
+                    s.final_bid = bid
+                    s.final_bidder_id = player_id
+                    s.trump_suit = suit
+                # else: bid < 10 and didn't bid in first, so just record their bid but don't change trump
+        
         s.next_turn()
         self._advance_bid_phase()
         return True, ""
 
     def _advance_bid_phase(self):
+        """Handle transition between bid phases."""
         s = self.state
         s._bid_turns = getattr(s, '_bid_turns', 0) + 1
         n = len(s.players)
-        if s._bid_turns < n: return
+        
+        # All players have bid in current phase
+        if s._bid_turns < n: 
+            return
+        
         s._bid_turns = 0
 
         if s.phase == GamePhase.FIRST_BID:
+            # Check if anyone actually bid (not all skipped)
+            if s.final_bid is None:
+                # All skipped - enter Sarkari Trump mode (no trump owner)
+                s.is_sarkari_trump = True
+                s.trump_suit = None
+                s.final_bidder_id = None
+            
+            # Deal remaining 8 cards
             hands, rem = deal_cards(s.deck, 8, n)
             s.deck = rem
             for i, pid in enumerate(s.player_order):
@@ -171,17 +240,28 @@ class GameEngine:
                 p.hand.extend(hands[i])
                 # Re-sort full 13-card hand
                 p.hand = sorted(p.hand, key=lambda c: (SUIT_SORT.get(c.suit,4), -c.rank_value))
-                p.bid = None
-            s.final_bid = None; s.final_bidder_id = None; s.trump_suit = None
-            s.phase = GamePhase.FINAL_BID; s.current_player_idx = 0
+                p.bid = None  # Clear individual bids for next phase
+            
+            # Move to final bid phase
+            s.phase = GamePhase.FINAL_BID
+            s.current_player_idx = s.bidding_started_player_idx
 
         elif s.phase == GamePhase.FINAL_BID:
-            if s.final_bid is None:
+            # In Sarkari mode, no one needs to place a bid
+            # But if someone did bid, keep that as the trump owner's bid
+            # If still no bid, keep it that way (true Sarkari - no trump owner)
+            if s.final_bid is None and not s.is_sarkari_trump:
+                # This shouldn't happen in normal play, but add fallback
                 pid0 = s.player_order[0]
                 default = Bid(player_id=pid0, tricks=5, suit="spades")
-                s.final_bid = default; s.final_bidder_id = pid0
-                s.trump_suit = "spades"; s.players[pid0].bid = default
-            s.phase = GamePhase.PLAYING; s.current_player_idx = 0
+                s.final_bid = default
+                s.final_bidder_id = pid0
+                s.trump_suit = "spades"
+                s.players[pid0].bid = default
+            
+            # Move to playing phase
+            s.phase = GamePhase.PLAYING
+            s.current_player_idx = 0
 
     def play_card(self, player_id: str, card_idx: int) -> Tuple[bool, str, bool]:
         s = self.state
@@ -240,7 +320,12 @@ class GameEngine:
         s.phase = GamePhase.ROUND_END
 
     def start_new_round(self):
+        """Start new round with complete state reset."""
         s = self.state
         s.round_number += 1
-        if s.round_number > s.total_rounds: s.phase = GamePhase.GAME_OVER; return
+        if s.round_number > s.total_rounds: 
+            s.phase = GamePhase.GAME_OVER
+            return
+        
+        # Completely reset all round-specific state
         self.start_game()

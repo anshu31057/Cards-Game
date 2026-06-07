@@ -14,8 +14,8 @@ class BotPlayer:
         hand = state.players[self.pid].hand
         current = state.final_bid
         phase = state.phase.value
-        orig_id = getattr(state, '_original_bidder_id', None)
-        is_orig = (self.pid == orig_id)
+        bid_by_player = getattr(state, '_bid_by_player_in_first_phase', None)
+        is_bid_in_first = (bid_by_player == self.pid)
 
         # Estimate strength per suit
         best_suit, best_val = Suit.SPADES, -1
@@ -27,24 +27,54 @@ class BotPlayer:
         estimated = max(1, round(best_val * (0.9 if self.difficulty=="insane" else 1.0)))
 
         if phase == "first_bid":
-            min_bid = (current.tricks+1) if current else 5
-        else:
-            if is_orig:
-                own = current.tricks if (current and current.player_id==self.pid) else 0
-                min_bid = own + 1
+            # In first bid phase: minimum is 5, or current+1 if bid exists
+            min_bid = (current.tricks + 1) if current else 5
+            
+            # Easy/medium sometimes skip (35% chance)
+            if self.difficulty in ("easy","medium") and random.random() < 0.35:
+                return 0, ""
+            
+            # Can't honestly bid minimum - skip
+            if estimated < min_bid:
+                return 0, ""
+            
+            tricks = max(min_bid, min(13, estimated))
+            return int(tricks), best_suit.value
+
+        elif phase == "final_bid":
+            # In final bid phase:
+            # - If bid in first: can bid >= their first bid
+            # - If skipped first: can bid 1-13, but >= 10 to override trump
+            
+            if is_bid_in_first:
+                # Has bid in first phase - can increase
+                own_bid = current.tricks if (current and current.player_id==self.pid) else 5
+                if estimated < own_bid:
+                    return 0, ""  # Not strong enough to bid higher
+                # Try to bid reasonably higher
+                min_bid = own_bid + 1
             else:
-                min_bid = 10  # must bid ≥10 to override
-                if current and min_bid <= current.tricks: min_bid = current.tricks+1
-
-        # Easy/medium sometimes skip
-        if self.difficulty in ("easy","medium") and random.random() < 0.35:
-            return 0, ""
-
-        if estimated < min_bid:
-            return 0, ""  # can't beat minimum honestly — skip
-
-        tricks = max(min_bid, min(13, estimated))
-        return int(tricks), best_suit.value
+                # Skipped in first phase
+                if current and current.tricks >= 10:
+                    # Need >= 10 to override
+                    if estimated < 10:
+                        return 0, ""
+                    min_bid = max(10, current.tricks + 1)
+                else:
+                    # No strong trump yet, can bid lower
+                    min_bid = max(1, min(current.tricks + 1 if current else 1, estimated))
+            
+            # Easy/medium sometimes skip in final too (25% chance)
+            if self.difficulty in ("easy","medium") and random.random() < 0.25:
+                return 0, ""
+            
+            if estimated < min_bid:
+                return 0, ""
+            
+            tricks = max(min_bid, min(13, estimated))
+            return int(tricks), best_suit.value
+        
+        return 0, ""
 
     def decide_card(self, state: GameState) -> int:
         p = state.players[self.pid]
