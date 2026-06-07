@@ -1,6 +1,7 @@
-// BiddingPanel - dim overlay (not blur), new bid rules UI
+// BiddingPanel - new rules: Skip or Declare Trump (5+) for first bid, then final tricks
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useResponsiveContext } from '../../hooks/useMediaQuery';
 import type { Suit, GamePhase } from '../../types/game';
 import { SUIT_SYMBOLS, SUIT_COLORS } from '../../types/game';
 
@@ -9,6 +10,7 @@ interface BiddingPanelProps {
   currentBid: { tricks: number; suit: Suit; player_id: string } | null;
   myPlayerId: string;
   originalBidderId: string | null;
+  isSarkariTrump: boolean;
   onBid: (t: number, s: Suit) => void; onSkip: () => void;
   myBid: { tricks: number; suit: Suit } | null;
   roundNumber: number; totalRounds: number;
@@ -18,112 +20,168 @@ const SUITS: Suit[] = ['spades','hearts','diamonds','clubs'];
 
 export default function BiddingPanel({
   phase, isMyTurn, currentBid, myPlayerId, originalBidderId,
-  onBid, onSkip, myBid, roundNumber, totalRounds,
+  isSarkariTrump, onBid, onSkip, myBid, roundNumber, totalRounds,
 }: BiddingPanelProps) {
+  const responsive = useResponsiveContext();
   const isBid = phase==='first_bid' || phase==='final_bid';
+  const isFirstBid = phase === 'first_bid';
+  const isFinalBid = phase === 'final_bid';
 
-  const isOrigBidder = myPlayerId === originalBidderId;
-  const minBid = (() => {
-    if (phase==='first_bid') return currentBid ? currentBid.tricks+1 : 5;
-    if (phase==='final_bid') {
-      if (isOrigBidder) {
-        const own = (currentBid?.player_id===myPlayerId) ? currentBid.tricks : 0;
-        return own + 1;
-      }
-      return Math.max(10, currentBid ? currentBid.tricks+1 : 10);
-    }
-    return 1;
-  })();
-
-  const [tricks, setTricks] = useState(minBid);
+  const [tricks, setTricks] = useState(isFirstBid ? 5 : 5);
   const [suit, setSuit] = useState<Suit>('spades');
-  useEffect(() => { if (tricks < minBid) setTricks(minBid); }, [minBid]);
+
+  // In first bid phase: minimum is always 5 (or current+1 if bid exists)
+  const minBid = isFirstBid 
+    ? (currentBid ? currentBid.tricks + 1 : 5)
+    : isFinalBid
+      ? (myBid ? myBid.tricks + 1 : 1)
+      : 1;
+
+  useEffect(() => { 
+    if (tricks < minBid) setTricks(minBid); 
+  }, [minBid]);
 
   if (!isBid) return null;
+
   const pct = Math.max(0, Math.min(100, ((tricks-minBid)/Math.max(1,13-minBid))*100));
+
+  // Responsive layout: bottom-sheet on mobile, overlay on desktop
+  const isBottomSheet = responsive.isPhone || responsive.isTablet;
+  const modalHeight = isBottomSheet ? 'auto max-h-[85vh]' : 'auto';
+  const padding = responsive.isPhone ? 'p-3' : 'p-4';
+  const displaySize = responsive.isPhone ? 'text-3xl' : 'text-5xl';
+  const headerSize = responsive.isPhone ? 'text-xs' : 'text-xs';
+  const buttonSize = responsive.isPhone ? 'text-xs py-2' : 'text-sm py-2.5';
 
   return (
     <AnimatePresence>
-      <motion.div className="absolute inset-0 z-40 flex items-end justify-center pb-40"
-        style={{ background:'rgba(0,0,0,0.42)' }}  // dim only — no backdropFilter
+      <motion.div 
+        className={`absolute inset-0 z-40 flex ${isBottomSheet ? 'items-end justify-center' : 'items-center justify-center'}`}
+        style={{ background:'rgba(0,0,0,0.42)' }}
         initial={{ opacity:0 }} animate={{ opacity:1 }} exit={{ opacity:0 }}>
 
-        <motion.div className="w-full max-w-xs mx-3 rounded-2xl p-4 shadow-2xl"
-          style={{ background:'rgba(6,18,10,0.98)', border:'1px solid rgba(201,162,39,0.3)' }}
-          initial={{ y:55, opacity:0 }} animate={{ y:0, opacity:1 }} exit={{ y:55, opacity:0 }}
+        <motion.div 
+          className={`w-full ${responsive.isPhone ? 'mx-0 rounded-t-3xl' : 'mx-3 rounded-2xl max-w-xs'} ${padding} shadow-2xl overflow-y-auto`}
+          style={{ 
+            background:'rgba(6,18,10,0.98)', 
+            border:'1px solid rgba(201,162,39,0.3)',
+          }}
+          initial={{ y: isBottomSheet ? 55 : 0, opacity:0, scale: isBottomSheet ? 1 : 0.95 }} 
+          animate={{ y: 0, opacity:1, scale: 1 }} 
+          exit={{ y: isBottomSheet ? 55 : 0, opacity:0, scale: isBottomSheet ? 1 : 0.95 }}
           transition={{ type:'spring', stiffness:360, damping:30 }}>
 
           {/* Header */}
           <div className="text-center mb-3">
-            <div className="text-yellow-400 font-bold uppercase tracking-widest text-xs">
-              {phase==='first_bid' ? 'Make Your Call' : 'Final Override'}
+            <div className={`text-yellow-400 font-bold uppercase tracking-widest ${headerSize}`}>
+              {isFirstBid ? '5-Card Round' : '13-Card Final Bids'}
             </div>
             <div className="text-gray-600 text-xs">Rd {roundNumber}/{totalRounds}</div>
             {currentBid && (
               <div className="text-gray-400 text-xs mt-0.5">
                 Current: <span className="text-white font-bold">{currentBid.tricks}</span>
-                <span className="ml-1" style={{ color:SUIT_COLORS[currentBid.suit] }}>{SUIT_SYMBOLS[currentBid.suit]}</span>
+                <span className="ml-1" style={{ color:SUIT_COLORS[currentBid.suit] }}>
+                  {SUIT_SYMBOLS[currentBid.suit]}
+                </span>
               </div>
             )}
-            {phase==='final_bid' && !isOrigBidder && (
-              <div className="text-amber-400 text-xs mt-0.5">Need ≥10 to override trump</div>
-            )}
-            {phase==='final_bid' && isOrigBidder && (
-              <div className="text-green-400 text-xs mt-0.5">You can increase your bid</div>
+            {isSarkariTrump && (
+              <div className="text-amber-400 text-xs mt-0.5">🤝 Neutral Trump (All Skipped)</div>
             )}
           </div>
 
           {!isMyTurn || myBid ? (
             <div className="text-center py-3">
               {myBid ? (
-                <div className="text-green-400 font-semibold text-sm">✓ Bid: {myBid.tricks} {SUIT_SYMBOLS[myBid.suit]}</div>
+                <div className="text-green-400 font-semibold text-sm">
+                  ✓ Bid: {myBid.tricks} {isFirstBid ? SUIT_SYMBOLS[myBid.suit] : ''}
+                </div>
               ) : (
-                <motion.div className="text-gray-400 text-sm" animate={{ opacity:[0.5,1,0.5] }} transition={{ duration:1.4,repeat:Infinity }}>
+                <motion.div className="text-gray-400 text-sm" 
+                  animate={{ opacity:[0.5,1,0.5] }} 
+                  transition={{ duration:1.4,repeat:Infinity }}>
                   Waiting…
                 </motion.div>
               )}
             </div>
           ) : (
             <>
-              <motion.div key={tricks} className="text-center text-5xl font-bold text-white mb-2"
-                initial={{ scale:1.2, opacity:0.6 }} animate={{ scale:1, opacity:1 }} transition={{ duration:0.1 }}>
+              {/* Display current bid selection */}
+              <motion.div key={tricks} 
+                className={`text-center font-bold text-white mb-2 ${displaySize}`}
+                initial={{ scale:1.2, opacity:0.6 }} 
+                animate={{ scale:1, opacity:1 }} 
+                transition={{ duration:0.1 }}>
                 {tricks}
               </motion.div>
 
-              <div className="px-1 mb-2">
+              {/* Tricks Slider */}
+              <div className="px-1 mb-3">
                 <input type="range" min={minBid} max={13} value={tricks}
-                  onChange={e=>setTricks(Number(e.target.value))} className="w-full h-2 rounded-full"
-                  style={{ background:`linear-gradient(to right,#22c55e ${pct}%,rgba(255,255,255,0.1) ${pct}%)`, accentColor:'#22c55e' }}/>
-                <div className="flex justify-between text-xs text-gray-600 mt-0.5 px-0.5"><span>{minBid}</span><span>13</span></div>
+                  onChange={e=>setTricks(Number(e.target.value))} 
+                  className="w-full h-2 rounded-full"
+                  style={{ 
+                    background:`linear-gradient(to right,#22c55e ${pct}%,rgba(255,255,255,0.1) ${pct}%)`, 
+                    accentColor:'#22c55e' 
+                  }}/>
+                <div className="flex justify-between text-xs text-gray-600 mt-0.5 px-0.5">
+                  <span>{minBid}</span>
+                  <span>13</span>
+                </div>
               </div>
 
-              <div className="flex justify-center gap-5 mb-3">
+              {/* +/- Buttons */}
+              <div className={`flex justify-center gap-3 mb-3 ${responsive.isPhone ? 'gap-2' : 'gap-5'}`}>
                 {([['−',()=>setTricks(t=>Math.max(minBid,t-1))],['+',()=>setTricks(t=>Math.min(13,t+1))]] as [string,()=>void][]).map(([l,fn])=>(
-                  <motion.button key={l} className="w-10 h-10 rounded-full text-xl font-bold text-white"
+                  <motion.button key={l} 
+                    className={`rounded-full text-xl font-bold text-white ${responsive.isPhone ? 'w-8 h-8' : 'w-10 h-10'}`}
                     style={{ background:'rgba(255,255,255,0.1)', border:'1px solid rgba(255,255,255,0.15)' }}
-                    onClick={fn} whileHover={{ scale:1.12 }} whileTap={{ scale:0.9 }}>{l}</motion.button>
-                ))}
-              </div>
-
-              <div className="flex gap-2 justify-center mb-3">
-                {SUITS.map(s=>(
-                  <motion.button key={s} className="w-11 h-11 rounded-xl text-xl"
-                    style={{ background:suit===s?'rgba(201,162,39,0.22)':'rgba(255,255,255,0.06)', border:suit===s?'2px solid #c9a227':'1px solid rgba(255,255,255,0.1)', color:SUIT_COLORS[s], boxShadow:suit===s?'0 0 10px rgba(201,162,39,0.4)':'none' }}
-                    onClick={()=>setSuit(s)} whileHover={{ scale:1.1 }} whileTap={{ scale:0.9 }}>
-                    {SUIT_SYMBOLS[s]}
+                    onClick={fn} 
+                    whileHover={{ scale:1.12 }} 
+                    whileTap={{ scale:0.9 }}>
+                    {l}
                   </motion.button>
                 ))}
               </div>
 
-              <div className="flex gap-2">
-                <motion.button className="flex-1 py-2.5 rounded-xl text-sm font-bold text-gray-300"
+              {/* Suit Selection - Only in First Bid */}
+              {isFirstBid && (
+                <div className={`flex gap-2 justify-center mb-3 ${responsive.isPhone ? 'gap-1' : 'gap-2'}`}>
+                  {SUITS.map(s=>(
+                    <motion.button key={s} 
+                      className={`rounded-xl text-xl ${responsive.isPhone ? 'w-9 h-9' : 'w-11 h-11'}`}
+                      style={{ 
+                        background:suit===s?'rgba(201,162,39,0.22)':'rgba(255,255,255,0.06)', 
+                        border:suit===s?'2px solid #c9a227':'1px solid rgba(255,255,255,0.1)', 
+                        color:SUIT_COLORS[s], 
+                        boxShadow:suit===s?'0 0 10px rgba(201,162,39,0.4)':'none' 
+                      }}
+                      onClick={()=>setSuit(s)} 
+                      whileHover={{ scale:1.1 }} 
+                      whileTap={{ scale:0.9 }}>
+                      {SUIT_SYMBOLS[s]}
+                    </motion.button>
+                  ))}
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className={`flex gap-2 ${responsive.isPhone ? 'gap-1.5' : 'gap-2'}`}>
+                <motion.button 
+                  className={`flex-1 rounded-xl font-bold text-gray-300 ${buttonSize}`}
                   style={{ background:'rgba(255,255,255,0.07)', border:'1px solid rgba(255,255,255,0.12)' }}
-                  onClick={onSkip} whileHover={{ scale:1.02 }} whileTap={{ scale:0.97 }}>Skip</motion.button>
-                <motion.button className="flex-[2] py-2.5 rounded-xl text-sm font-bold text-black"
+                  onClick={onSkip} 
+                  whileHover={{ scale:1.02 }} 
+                  whileTap={{ scale:0.97 }}>
+                  Skip
+                </motion.button>
+                <motion.button 
+                  className={`flex-1 rounded-xl font-bold text-black ${buttonSize}`}
                   style={{ background:'linear-gradient(135deg,#22c55e,#16a34a)' }}
-                  onClick={()=>onBid(tricks,suit)}
-                  whileHover={{ scale:1.02, boxShadow:'0 0 16px rgba(34,197,94,0.5)' }} whileTap={{ scale:0.97 }}>
-                  ✓ Bid {tricks} {SUIT_SYMBOLS[suit]}
+                  onClick={()=>onBid(tricks, suit)}
+                  whileHover={{ scale:1.02, boxShadow:'0 0 16px rgba(34,197,94,0.5)' }} 
+                  whileTap={{ scale:0.97 }}>
+                  ✓ Bid {tricks} {isFirstBid ? SUIT_SYMBOLS[suit] : 'tricks'}
                 </motion.button>
               </div>
             </>

@@ -22,6 +22,8 @@ export interface GameState {
   current_trick: CurrentTrick; trick_history_count: number;
   round_number: number; total_rounds: number;
   original_bidder_id: string | null;
+  is_sarkari_trump: boolean;
+  bidding_started_player_idx: number;
 }
 
 export interface AppSession { playerName: string; playerId: string; roomPin: string; }
