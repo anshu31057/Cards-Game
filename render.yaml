@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: cardstrike-api
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT --ws-ping-interval 20 --ws-ping-timeout 30
+    envVars:
+      - key: ENV
+        value: production
+      - key: FRONTEND_URL
+        value: https://game.vercittycreations.xyz
+      - key: DATABASE_URL
+        value: sqlite+aiosqlite:///./cardstrike.db
+    healthCheckPath: /api/ping

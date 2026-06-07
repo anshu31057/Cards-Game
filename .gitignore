@@ -1,0 +1,133 @@
+# ============================================================
+# CardStrike - Monorepo .gitignore
+# ============================================================
+
+# ── Python / Backend ────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env/
+ENV/
+backend/venv/
+backend/.venv/
+
+# Python build artifacts
+*.egg-info/
+*.egg
+dist/
+build/
+*.so
+wheels/
+
+# SQLite databases (local only)
+*.db
+*.sqlite
+*.sqlite3
+backend/*.db
+backend/*.sqlite3
+
+# Python logs
+*.log
+logs/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# pytest / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+nosetests.xml
+coverage.xml
+*.cover
+
+# mypy / pyright
+.mypy_cache/
+.pyright/
+.dmypy.json
+
+# ── Node / Frontend ─────────────────────────────────────────
+node_modules/
+frontend/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+.pnpm-store/
+
+# Vite / build output
+frontend/dist/
+frontend/.vite/
+frontend/build/
+.cache/
+
+# TypeScript build info
+*.tsbuildinfo
+frontend/node_modules/.tmp/
+
+# ── Environment / Secrets ───────────────────────────────────
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Keep .env.example and .env.development/.env.production templates
+!.env.example
+!frontend/.env.example
+!backend/.env.example
+!frontend/.env.development
+!frontend/.env.production
+
+# ── IDE / Editor ─────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+*.sublime-workspace
+*.sublime-project
+
+# ── OS Files ─────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ── Docker ───────────────────────────────────────────────────
+# Keep docker-compose.yml and Dockerfiles — DO NOT ignore those
+# Only ignore local override files
+docker-compose.override.yml
+docker-compose.local.yml
+
+# ── Misc ─────────────────────────────────────────────────────
+.parcel-cache/
+.turbo/
+*.zip
+*.tar.gz
+*.bak
+*.tmp
+.vercel/
+
+# ── IMPORTANT: DO NOT ignore these ──────────────────────────
+# frontend/public/cards/*.svg  → SVG card assets (keep!)
+# frontend/public/audio/       → Audio assets (keep!)
+# frontend/src/                → All source code (keep!)
+# backend/app/                 → All backend code (keep!)
