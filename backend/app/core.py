@@ -9,14 +9,19 @@ from app.database.db import init_db
 FRONTEND_URL = os.getenv("FRONTEND_URL", "https://game.vercittycreations.xyz")
 ALLOWED_ORIGINS = [
     FRONTEND_URL,
+
     "https://game.vercittycreations.xyz",
+
     "https://www.vercittycreations.xyz",
-    # Allow localhost for dev
+
+    "https://cards-game-one-mu.vercel.app",
+
     "http://localhost:5173",
+
     "http://localhost:3000",
+
     "http://127.0.0.1:5173",
 ]
-
 def create_app() -> FastAPI:
     app = FastAPI(
         title="CardStrike API",
